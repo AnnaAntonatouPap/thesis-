@@ -1,0 +1,229 @@
+# 09.05.2020
+#scRNA SEQ AANALYSIS 
+#DATA : 1st trimester
+#load packages 
+
+library(Seurat)
+library(dplyr)
+library(patchwork)
+
+#set directory 
+setwd("D:/master thesis literature/scRNA_1stTrimester/counts")
+
+#load countmatrix 
+scRNA_countdata <- read.table("genecounts_scRNA_trimester_6_9_20_pargument.txt", header=TRUE, row.names=1)
+# Remove .bam or .sam from filenames and the firstpart "..mapping"
+colnames(scRNA_countdata) <- gsub("\\.sorted.bam$", "", colnames(scRNA_countdata))
+colnames(scRNA_countdata) <- gsub("X.data.scratch.anna9230.scRNA_rawReads.", "", colnames(scRNA_countdata))
+
+# crop the 5 first columns 
+scRNA_countdata <-scRNA_countdata[ ,6:ncol(scRNA_countdata)]
+
+# Initialize the Seurat object with the raw (non-normalized data).
+data <- CreateSeuratObject(counts = scRNA_countdata, project = "scRNA_1tr", min.cells = 3, min.features = 200)
+data
+
+# check few genes in the first 30 cells
+scRNA_countdata[c("CD3D","TCL1A"), 1:30]
+
+
+########### Standard pre-processing workflow ############
+
+##  These represent the selection and filtration of cells based on QC metrics, 
+#data normalization and scaling, and the detection of highly variable features.
+
+#The [[ operator can add columns to object metadata. This is a great place to stash QC stats
+data[["percent.mt"]] <- PercentageFeatureSet(data, pattern = "^MT-")
+
+ # show QC matrics for the first 5 cells
+head(data@meta.data, 5)
+
+
+#Visualize QC metrics as a violin plot
+VlnPlot(data, features = c("nFeature_RNA", "nCount_RNA","percent.mt"), ncol = 3)
+
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc
+
+plot1 <- FeatureScatter(data, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(data, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1+plot2
+
+plot3 <- FeatureScatter(data, feature1 = "nFeature_RNA", feature2 = "percent.mt")
+##fILTER OUT LOW quality cells
+#nFeature_RNA is the number of genes detected in each cell. nCount_RNA is the total number 
+#of molecules detected within a cell. Low nFeature_RNA for a cell indicates that it may be dead/dying or an empty droplet. 
+#High nCount_RNA and/or nFeature_RNA indicates that the "cell" may in fact be a doublet (or multiplet). 
+#In combination with %mitochondrial reads, removing outliers from 
+#these groups removes most doublets/dead cells/empty droplets, hence why filtering is a common pre-processing step
+### subes data
+#step by step qc
+data1 <-subset(data, subset =percent.mt < 20 )
+data2 <- subset(data, subset = nFeature_RNA > 200 & nFeature_RNA < 7000 & percent.mt < 20)
+data.use <- data2
+# Normalization
+#whre to find normalize data pbmc[["RNA"]]@data.
+
+data.use <- NormalizeData(data.use,normalization.method = "LogNormalize", scale.factor = 10000)
+
+
+#We next calculate a subset of features that exhibit high cell-to-cell variation in the dataset
+
+data.use <- FindVariableFeatures(data.use, selection.method = "vst", nfeatures = 2000)
+
+## Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(data.use), 10)
+top10
+
+#plot variable features with and without labels
+plot1 <- VariableFeaturePlot(data.use)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE, xnudge=0, ynudge=0)
+plot1 + plot2
+
+
+###scaling the data prior to PCA ( DIMENSIONAL REDUCTION TECH)
+
+# shifts  the expression of each gene so that the mean expression across cells is 0
+
+# scales the expression of each gene , so that the variance across cells is 1
+
+# This step gives equal weight in downstream analyses, so that hightly-expressed genes do not dominate
+
+all.genes <- rownames(data.use)
+data.use <- ScaleData(data.use, features = all.genes)
+
+data.use <- RunPCA(data.use, features = VariableFeatures(object = data.use))
+
+## examine and visualize PCA results a few different ways
+VizDimLoadings(data, dims = 1:2, reduction = "pca", ncol = 2)
+DimPlot(data, reduction = "pca")
+DimHeatmap(data, dims = 1, cells = 500, balanced = TRUE)
+
+DimHeatmap(data, dims = 1:15, cells = 500, balanced = TRUE)
+
+#Determine the 'dimensionality' of the dataset
+
+# We randomly permute a subset of the data (1% by default) and rerun PCA, constructing a 'null distribution' 
+#of feature scores, and repeat this procedure. We identify 'significant' PCs as those who have a strong enrichment 
+#of low p-value features.
+# NOTE: This process can take a long time for big datasets, comment out for expediency. More
+# approximate techniques such as those implemented in ElbowPlot() can be used to reduce
+# computation time
+data.use <- JackStraw(data.use, num.replicate = 100)
+data.use <- ScoreJackStraw(data.use, dims = 1:20)
+# Visualization 
+JackStrawPlot(data.use, dims = 1:20)
+
+#Alternative heuristic method
+ElbowPlot(data.use)
+
+### Clustering with 10 PCs
+dataClusterA <- FindNeighbors(data.use, dims =1:10)
+dataClusterA <- FindClusters(dataClusterA, resolution = 0.5)
+
+## clustering by using 15 PCs
+dataClusterB <- FindNeighbors(data.use, dims =1:18)
+dataClusterB <- FindClusters(dataClusterB, resolution = 0.5)
+# Look at cluster IDs of the first 5 cells
+head(Idents(data), 10)
+
+# check clusters in meta data
+dataClusterA@meta.data
+## try to save the raw counts for each cluster
+cluster1 <- subset(data,idents=1)
+cluster1@meta.data
+head(cluster1)
+
+# extract scale data
+scaleData_cluster1 <- GetAssayData(object=cluster1,slot="counts")
+head(scaleData_cluster1)
+scaleData_cluster1FRAME <-as.data.frame(scaleData_cluster1)
+#extract cluster 0
+cluster0 <- subset(data,idents=0)
+rawData_cluster0 <- GetAssayData(object=cluster0,slot="counts")
+
+# save as table cell- cluster
+write.table(data@active.ident, file='Cell_Cluster_10pcas.tsv', quote=FALSE, sep='\t', col.names = FALSE)
+
+#Run non-linear dimensional reduction (UMAP/tSNE)
+
+# install umap
+reticulate::py_install(packages = 'umap-learn')
+
+# umap 10 PCS
+dataClusterA <- RunUMAP(dataClusterA, dims = 1:10)
+DimPlot(dataClusterA, label= TRUE, reduction = "umap")
+# umpa 18 PCs
+dataClusterB <- RunUMAP(dataClusterB, dims = 1:18)
+DimPlot(dataClusterB, label= TRUE, reduction = "umap")
+# run tsne 10 PC
+dataClusterA <- RunTSNE(dataClusterA, dims = 1:10)
+DimPlot(dataClusterA,label= TRUE, reduction = "tsne")
+# run tsne 18 PC
+dataClusterB <- RunTSNE(dataClusterB, dims = 1:18)
+DimPlot(dataClusterB,label= TRUE, reduction = "tsne")
+#save the object
+saveRDS(data, file = "C:/Users/AN/Desktop/master thesis literature/scRNA_1stTrimester/scRNA_tutorial_10pcas.rds")
+
+#################################### Continue with 10PCs 12 clusters ################################################
+# dataClusterA
+
+##### find differentially expressed genes ( cluster biomarkers)
+
+# find all markers of cluster 1
+cluster1.markers <- FindMarkers(data, ident.1 = 1, min.pct = 0.25)
+head(cluster1.markers, n = 5)
+
+# find all markers distinguishing cluster 5 from clusters 0 and 3
+cluster5.markers <- FindMarkers(data, ident.1 = 5, ident.2 = c(0, 3), min.pct = 0.25)
+head(cluster5.markers, n = 5)
+
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+data.markers <- FindAllMarkers(data, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+data.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_log2FC)
+
+# test 
+cluster1.markers <- FindMarkers(data, ident.1 = 1, logfc.threshold = 0.25, test.use = "roc", only.pos = FALSE)
+head(cluster1.markers, n = 8)
+
+# visualize marker expression 
+
+VlnPlot(data, features = c(" LINGO1 ","NRXN3"))
+
+FeaturePlot(data, features = c("AAK1", "AC068633.1", "FYN", "RNASE1", "SERPINE2", "NEAT1","IGFBP3"))
+
+top10 <- data.markers %>% group_by(cluster) %>% top_n(10, wt = avg_log2FC)
+DoHeatmap(data, features = top10$gene,label = TRUE) 
+
+
+############################### SC TRANSFORMATION RESULTS ####################
+
+data_SCtransf <- CreateSeuratObject(scRNA_countdata) %>% PercentageFeatureSet(pattern = "^MT-", col.name = "percent.mt") %>% 
+  subset( subset = nFeature_RNA > 200 & nFeature_RNA < 7500 & percent.mt < 5)%>% 
+  SCTransform(vars.to.regress = "percent.mt") %>% RunPCA() %>% FindNeighbors(dims = 1:30) %>% 
+  RunUMAP(dims = 1:30) %>% FindClusters()
+
+# plot umap clusters
+
+DimPlot(data_SCtransf, label = TRUE)
+# save plot
+saveRDS(data_SCtransf, file = "D:/master thesis literature/scRNA_1stTrimester/counts/SCtransformation/scTransfo_clusters.rds")
+
+################################################### check how to extract clusters #########################################################
+
+## check raw data CLUSTER 1
+cluster1_b <- subset(data_SCtransf,idents=1)
+rawData_cluster1b <- GetAssayData(object=cluster1_b,slot="counts")
+head(rawData_cluster1b)
+rawData_cluster1b <-as.data.frame(rawData_cluster1b)
+ncol(rawData_cluster1b) # 327
+
+# count zeros
+rawData_cluster1b$CountZero <- apply(rawData_cluster1b,1, function(x) {
+  sum(x==0)
+})
+
+# keep genes that are expressed in 30% ,70.19% zeros
+rawData_cluster1b_filt <- rawData_cluster1b[which(rawData_cluster1b$CountZero <=65),]
+
+nrow(rawData_cluster1b_filt) # 327
