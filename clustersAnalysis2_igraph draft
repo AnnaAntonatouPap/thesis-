@@ -1,0 +1,264 @@
+##### Cluster 3 scRNAseq analysis 1stTrime
+# number of genes
+# number of cells
+#load txtx file from wto 
+cluster3_wto = read.table("RES_Network_cluster3NEW_scRNA_1Trim_1000bstr.txt", header= TRUE, sep= ",")
+# filter based on p value
+cluster3_wto_filter <- cluster3_wto[which(cluster3_wto$pval.adj <= 0.001),]
+
+# cretate data frame for stats
+cluster3_wto_filtstats <-cluster3_wto_filter
+cluster3_wto_filtstats$abswTO=abs(cluster3_wto_filtstats$wTO)
+cluster3_wto_filtstats$wTO <-NULL
+cluster3_wto_filtstats$X <-NULL
+cluster3_wto_filtstats$pval <-NULL
+cluster3_wto_filtstats$pval.adj <-NULL
+
+summary_cluster3<- summary(cluster3_wto_filtstats)
+
+# filter based on median value 0.2
+cluster3_use <- cluster3_wto_filter[which(abs(cluster3_wto_filter$wTO) >=0.09),]
+cluster3_use$X <- NULL
+# save 
+write.csv(cluster3_use, "RES_cluster3_scRNA_1stTrim_useCytoscape2.txt", sep =",", quote=TRUE)
+# load id lost for the nodes 
+id_list =read.table("id_list_cytoscape.csv", header = TRUE, sep = ",")
+
+## import the nodes from cytoscape and much them with gene type ids
+nodes_cytoscape_cluster3 <-read.csv("nodes_cytoscape_cluster3.csv",as.is=TRUE,header=TRUE)
+# clean up quotes
+# Go through and cleanup    
+for (i in seq_len(NCOL(nodes_cytoscape_cluster3))) {
+  if (is.character(nodes_cytoscape_cluster3[[i]])) {
+    x <- nodes_cytoscape_cluster3[[i]]
+    x <- substr(x, 2, nchar(x)-1) # Remove surrounding quotes
+    nodes_cytoscape_cluster3[[i]] <- gsub('\\\\"', '"', x) # Unescape quotes
+  }
+}
+
+# much with the network #246
+nodes_cluster3_ids<- id_list[match(nodes_cytoscape_cluster3$name, id_list$gene.symbol), ]
+write.table(nodes_cluster3_ids,"nodes_id_forCytoscape_cluster3.txt",sep=" ",quote = T,row.names = F )
+# see only TFs
+TFs_cluster3 <- subset(nodes_cluster3_ids,gene_type=="TF")
+nrow(TFs_cluster3) #329
+# see only lncRNAs
+lncRNA_cluster3<- subset(nodes_cluster3_ids,gene_type=="lncRNA")
+nrow(lncRNA_cluster3) #46
+
+########################## Visualization with igraph #####################################
+# Tutorial https://www.youtube.com/watch?v=aw--_pR-WhA
+## Load package
+library(igraph)
+library(CoDiNA) 
+library(wTO)
+library(networkD3)
+library(tidygraph)
+library(ggraph)
+library(tidyr)
+library(RColorBrewer)
+# convert network to igraph 
+#cluster2_use
+cluster3_igraphObj <-graph_from_data_frame(cluster3_use,directed=F)
+cluster3_igraphObj
+E(cluster3_igraphObj)$weight<-E(cluster3_igraphObj)$wTO # Assigning edge attribute to each edge
+# explore igraph object
+gsize(cluster3_igraphObj) # 51463
+gorder(cluster3_igraphObj) # 601
+
+# Nodelist
+nodelist <-V(cluster3_igraphObj)
+nodelist <-as.matrix(nodelist)
+nodelist<-as.data.frame(nodelist)
+nodelist <-setNames(cbind(rownames(nodelist), nodelist, row.names = NULL),
+                    c("NodeName", "VAL1"))
+nodelist$VAL1<- NULL
+# Match with genetype         
+totalNodesID_cluster3 <-id_list[match(nodelist$NodeName, id_list$gene.symbol), ]
+write.csv(totalNodesID_cluster3,"cluster3_nodesAttrib.csv")
+
+## how many TFs and lncRNAs
+TFs_cluster3 <-subset(totalNodesID_cluster3,gene_type=="TF")
+lncRNA_cluster3 <-subset(totalNodesID_cluster3,gene_type=="lncRNA")
+
+# include this to the igreph object
+V(cluster3_igraphObj)$GeneType <-totalNodesID_cluster3$gene_type
+# Edglist
+E(cluster3_igraphObj)
+
+## look data as adjecency matrix I DONT GET IT
+cluster3_igraphObj[c(1:50),c(1:50)]
+
+## check for self loops
+sum(which_loop(cluster3_igraphObj)) #0
+## if you have self loops
+networkX <- simplify(networkX, remove.loops = TRUE,
+                     remove.multiple = FALSE)
+any(which_loop(networkX))
+
+## diameter
+diameter(cluster3_igraphObj) ## 0.197
+
+## check if its connected
+is_connected(cluster3_igraphObj) ## TRUE
+######################################### Measure centrality ##########################################
+# 1. degree centralitty
+cluster3_igraphObjt_deg<-degree(cluster3_igraphObj,mode=c("All"))
+V(cluster3_igraphObj)$degree<-cluster3_igraphObjt_deg
+V(cluster3_igraphObj)$degree
+which.max(cluster3_igraphObjt_deg) # HLA-DRB1 
+#2. Eigenvector centrality
+cluster3_igraphObj_eig <- evcent(cluster3_igraphObj)$vector
+V(cluster3_igraphObj)$Eigen<-cluster3_igraphObj_eig
+V(cluster3_igraphObj)$Eigen
+which.max(cluster3_igraphObj_eig) #AC138123.1 
+
+#3. Betweenness centrality
+# Make negative weight positive in order to calculate betweenes
+cluster3_igraphObjPOSITIVE <-cluster3_igraphObj
+E(cluster3_igraphObjPOSITIVE)$weight <-abs(E(cluster3_igraphObjPOSITIVE)$weight)
+
+cluster3_igraphObj_bw<-betweenness(cluster3_igraphObjPOSITIVE, directed = F)
+V(cluster3_igraphObj)$betweenness<-cluster3_igraphObj_bw
+V(cluster3_igraphObj)$betweenness
+which.max(cluster3_igraphObj_bw) #HLA-DRB1 
+
+
+#### DF with all the information inside !!!! SUPERRRRRRRRR
+DF_cluster3<-as_long_data_frame(cluster3_igraphObj)
+DF_cluster3
+
+write.csv(DF_cluster3,'AllInfo_cluster3_17Feb2.csv')
+
+####################################### Network structure ##########################################
+# Network Density
+#1. Network Density
+edge_density(cluster3_igraphObj) # Global density  0.699467
+# for TFs and lncRNA
+TFsDensity<-induced_subgraph(cluster3_igraphObj, V(cluster3_igraphObj)[GeneType=="TF"], impl=c("auto")) # Subgraphing into each class
+edge_density(TFsDensity) # Class level density 0.7143498
+# FOR lncRNAs
+lncDensity<-induced_subgraph(cluster3_igraphObj, V(cluster3_igraphObj)[GeneType=="lncRNA"], impl=c("auto")) # Subgraphing into each class
+edge_density(lncDensity) # Class level density 0.5885886
+
+#2. Assortativity (Genes of the same type are close to each other?)
+values <- as.factor(V(cluster3_igraphObj)$GeneType) # this works 
+values <- as.numeric(factor(V(cluster3_igraphObj)$GeneType)) # and this as well
+# run
+assortativity_nominal(cluster3_igraphObj, types=values)
+# result 0.008 DOES NOT SAY SOMETHING THIS NUMBER ITSELF 
+
+#2.1. Calculate the observed assortativity
+observed.assortativity <- assortativity_nominal(cluster3_igraphObj, types=values)
+results <- vector('list', 1000)
+for(i in 1:1000){results[[i]] <- assortativity_nominal(cluster3_igraphObj, sample(values))}
+
+#2.2.  Plot the distribution of assortativity values and add a red vertical line at
+#the original observed value
+hist(unlist(results), xlim = c(0,0.4))
+abline(v = observed.assortativity,col = "red", lty = 3, lwd=2)        
+##explain graph 
+## So the gens tend to mingle with genes of different type !!!!!! See how to explain it 
+
+######################## Network visualization #############################################
+
+#1. Plotting a network raw without any centrality 
+
+# check self loops
+which_multiple(cluster3_igraphObj, eids = E(cluster3_igraphObj))
+#cluster3_igraphObj2 <- simplify(cluster3_igraphObj, remove.loops = T)
+# NO SELF LOOPS
+
+# Hub score
+hub_scores_cluster3 <- hub_score(cluster3_igraphObj,scale=TRUE)
+hub_scores_cluster3$vector
+
+set.seed(1001) #same shape of network for the multiple tries 
+library(RColorBrewer) # This is the color library
+# orange tfs and blueish lncRNAs
+pal<-brewer.pal(length(unique(V(cluster3_igraphObj)$GeneType)), "Set3") # Vertex color assigned per each genetype number
+set.seed(1001)
+png("cluster3_betweenesCentality5.png",bg = "transparent",res = 300, width=1200, height=1200)
+par(mar=c(0,0,0,0))
+plot.igraph(cluster3_igraphObj,edge.color = 'gray',vertex.label.cex =0.2,
+            vertex.color=pal[as.numeric(as.factor(vertex_attr(cluster3_igraphObj, "GeneType")))],
+            #vertex.size = sqrt(cluster3_igraphObjt_deg),
+            vertex.size=5,
+            #edge.width=sqrt(E(cluster3_igraphObj)$weight/800),
+            #edge.width=0.5,
+            #edge.arrow.size = 0.5,
+            layout = layout.fruchterman.reingold)
+dev.off()
+###  another way of ploting 
+library("qgraph", lib.loc="~/R/win-library/4.0")
+e <- get.edgelist(cluster3_igraphObj,names=F)
+l <- qgraph.layout.fruchtermanreingold(e,vcount=vcount(cluster3_igraphObj))
+set.seed(1001)
+png("cluster3_BC_withoutLabels.png",bg = "transparent",res = 300, width=1200, height=1200)
+par(mar=c(0,0,0,0))
+plot(cluster3_igraphObj,layout=l,
+     edge.width=0.5,
+     #vertex.size=5,
+     vertex.size = sqrt(cluster3_igraphObj_bw)/5,
+     #vertex.label.cex =0.2,
+     vertex.label=NA,
+     vertex.label=ifelse(cluster3_igraphObj_bw > 2887, V(cluster3_igraphObj)$name,NA),
+     vertex.color=pal[as.numeric(as.factor(vertex_attr(cluster3_igraphObj, "GeneType")))],
+     area=10*(vcount(cluster3_igraphObj)^2),
+     repulse.rad=(vcount(cluster3_igraphObj)^3.1),
+     edge.color=ifelse((E(cluster3_igraphObj)$weight)> 0, "blue","red"))
+dev.off()
+
+#1. Plotting a network with the eigenvector centrality
+
+set.seed(1001)
+plot(cluster3_igraphObj,edge.color = 'black',vertex.label=NA, 
+     vertex.color=pal[as.numeric(as.factor(vertex_attr(cluster3_igraphObj, "GeneType")))],
+     vertex.size = sqrt(cluster3_igraphObj_eig)*10, 
+     edge.width=sqrt(E(cluster3_igraphObj)$weight),
+     layout = layout.fruchterman.reingold)
+
+#2. Plotting a network with the betweenness centrality
+setwd("D:/scRNA_1TRIM/wTO/cluster3")
+png("cluster3_betweenesCentality1.png",bg = "transparent", width=1200, height=1200)
+par(mar=c(0,0,0,0))
+
+set.seed(1001)
+plot.igraph(cluster3_igraphObj,edge.color = 'gray',vertex.label=NA, 
+     vertex.color=pal[as.numeric(as.factor(vertex_attr(cluster3_igraphObj, "GeneType")))],
+     vertex.size = sqrt(cluster3_igraphObj_bw)/10, 
+     #edge.width=sqrt(E(cluster3_igraphObj)$weight),
+     edge.width=0.1,
+     layout = layout.fruchterman.reingold) 
+#layout = layout.kamada.kawai) # kamada_kawai
+
+dev.off()
+
+#3. Plotting a scatter plot to see the correlation 
+
+#3.1. between degree and betweenness centrality
+
+plot(V(cluster3_igraphObj)$degree, V(cluster3_igraphObj)$betweenness)
+cor(V(cluster3_igraphObj)$degree, V(cluster3_igraphObj)$betweenness) ## 0.55  !!!
+#3.2. between degree and eigenvector centrality
+
+plot(V(cluster3_igraphObj)$degree, V(cluster3_igraphObj)$Eigen)
+cor(V(cluster3_igraphObj)$degree, V(cluster3_igraphObj)$Eigen) ## strong 0.9 !!!
+
+#==================================================================#
+#====================== Community Detection =======================#
+#==================================================================#
+
+#1. Louvain clustering
+lc <- cluster_louvain(cluster3_igraphObj) # Create a cluster based on the Louvain method
+communities(lc) # You can check which vertices belongs to which clusters.
+
+#2. Plotting the Betweenness Centrality network with the community detection
+
+set.seed(1001) # To duplicate the computer process and create exactly the same network repetitively you should set the seed.
+plot(lc, cluster3_igraphObj, edge.color = 'gray',vertex.label=NA,    # vertex.label.cex =0.5, 
+     vertex.color=pal[as.numeric(as.factor(vertex_attr(cluster3_igraphObj, "GeneType")))],
+     vertex.size = sqrt(cluster3_igraphObj_bw)/2, 
+     #edge.width=sqrt(E(cluster3_igraphObj)$weight/800),
+     edge.width=0.1,
+     layout = layout.fruchterman.reingold)
