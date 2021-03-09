@@ -1,0 +1,29 @@
+setwd("/data/scratch/anna9230")
+
+## 09.02.2021
+# script for wTO for single cell-RNA dataset 1st Trimester
+library(data.table)
+library(rvest)
+library(wTO)
+library(parallel)
+library(reshape2)
+library(igraph)
+library(plyr)
+
+# Load clusters
+#cluster1 <- read.table("cluster1_1397genes_484cells.txt", header=TRUE, row.names=1)
+#cluster2 <- read.table("cluster2_29genes_392cells.txt", header=TRUE, row.names=1)
+#cluster3 <- read.table("cluster3_3Kgenes_299cells.txt", header=TRUE, row.names=1)
+cluster4 <- read.table("cluster4_1kgenes_267cells.txt", header=TRUE, row.names=1)
+#cluster5 <- read.table("cluster5_4Kgenes_24cells.txt", header=TRUE, row.names=1)
+#cluster6 <- read.table("cluster6_645genes_20cells.txt", header=TRUE, row.names=1)
+#cluster7 <- read.table("cluster7_34genes_165cells.txt", header=TRUE, row.names=1)
+
+# load tfs and LNC
+overlap <- read.csv("lnc_TF_cataloge_ready_to_use.csv",header = TRUE)
+
+
+# run
+wTOf_scRNA_1sttrim_cluster4new = wTO.fast( Data = cluster4, Overlap = overlap$gene.symbol, method='p',sign ="sign",delta = 0.2,
+                                       n=1000, method_resampling="Bootstrap")
+write.csv(wTOf_scRNA_1sttrim_cluster4new, "RES_Network_cluster4NEW_scRNA_1Trim_1000bstr.txt")
