@@ -1,0 +1,9 @@
+# Essentially this code creates a "variance" column, selects those which are in the top 50%, 
+#and removes that column. I don't know if you are using a (genes * samples) or (samples * genes) matrix, 
+#so you may have to change the 1 in the first line to use the apply() function in the other dimension.
+# https://www.biostars.org/p/291453/
+
+### code
+data$variance = apply(data, 1, var)
+data2 = data[data$variance >= quantile(data$variance, c(.50)), ] #50% most variable genes
+data2$variance <- NULL
