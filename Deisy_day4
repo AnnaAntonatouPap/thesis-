@@ -1,0 +1,334 @@
+####################### igraph for Deisy data day 4 ####################################
+########################## Visualization with igraph #####################################
+# Tutorial https://www.youtube.com/watch?v=aw--_pR-WhA
+## Load package
+library(igraph)
+library(CoDiNA) 
+library(wTO)
+library(networkD3)
+library(tidygraph)
+library(ggraph)
+library(tidyr)
+library(RColorBrewer)
+#### INFO AOUT THE DATA
+# un-normalized countdata,1000 bootstraps,pearson correlation
+# filter 11< zeros, var 10%
+# full nodes 21107, overlap 6752
+
+##################-----------------------------ANALYSIS-------------------#########################
+
+#### load data, filter based on p value <0.01
+res_wto_4dpi = read.table("RES_Network_4dpi_1000bts_out10Variance11zeros_18Mar.txt", header= TRUE, sep= ",")
+res_wto_3dpi = read.table("RES_Network_3dpi_1000bts_out10Variance11zeros_18Mar.txt", header= TRUE, sep= ",")
+res_wto_2dpi = read.table("RES_Network_2dpi_1000bts_out10Variance11zeros_18Mar.txt", header= TRUE, sep= ",")
+res_wto_1dpi = read.table("RES_Network_1dpi_1000bts_out10Variance11zeros_18Mar.txt", header= TRUE, sep= ",")
+res_wto_0dpi = read.table("RES_Network_0dpi_1000bts_out10Variance11zeros_18Mar.txt", header= TRUE, sep= ",")
+
+# stats for unfiltered data
+data_day4ALL_stats <-res_wto_4dpi
+data_day4ALL_stats$abswTO=abs(data_day4ALL_stats$wTO)
+data_day4ALL_stats$wTO <-NULL
+data_day4ALL_stats$X <-NULL
+data_day4ALL_stats$pval <-NULL
+data_day4ALL_stats$pval.adj <-NULL
+
+summary(data_day4ALL_stats)
+hist(data_day4ALL_stats$wTO)
+
+# fliter 
+data_4dpi_filt <- res_wto_4dpi[which((res_wto_4dpi$pval) < 0.1),]
+data_1dpi_filt <- res_wto_1dpi[which((res_wto_1dpi$pval) < 0.1),]
+data_3dpi_filt <- res_wto_3dpi[which((res_wto_3dpi$pval) < 0.1),]
+
+# stats for filtered data
+data_day4filt_stats <-data_4dpi_filt
+data_day4filt_stats$abswTO=abs(data_day4filt_stats$wTO)
+data_day4filt_stats$wTO <-NULL
+data_day4filt_stats$X <-NULL
+data_day4filt_stats$pval <-NULL
+data_day4filt_stats$pval.adj <-NULL
+
+summary(data_day4filt_stats)
+hist(data_day4filt_stats$wTO)
+
+##################--------------------------igraph analysis-------------------------####################
+#
+#
+# convert network to igraph 
+#cluster2_use
+data_4dpi_filt$X <- NULL
+day4_igraphObj <-graph_from_data_frame(data_4dpi_filt,directed=F)
+day4_igraphObj
+E(day4_igraphObj)$weight<-E(day4_igraphObj)$wTO # Assigning edge attribute to each edge
+# explore igraph object
+gsize(day4_igraphObj) # 320249
+gorder(day4_igraphObj) # 3614
+
+# Nodelist
+nodelist <-V(day4_igraphObj)
+nodelist <-as.matrix(nodelist)
+nodelist<-as.data.frame(nodelist)
+nodelist <-setNames(cbind(rownames(nodelist), nodelist, row.names = NULL),
+                    c("NodeName", "VAL1"))
+nodelist$VAL1<- NULL
+
+### import id_list
+id_list =read.table("id_list_cytoscape.csv", header = TRUE, sep = ",")
+
+# Match with genetype         
+totalNodesID_day4 <-id_list[match(nodelist$NodeName, id_list$gene.symbol), ]
+write.csv(totalNodesID_day4,"DAY4_nodesAttrib_300321.csv")
+
+## how many TFs and lncRNAs
+TFs_day4 <-subset(totalNodesID_day4,gene_type=="TF")
+lncRNA_day4 <-subset(totalNodesID_day4,gene_type=="lncRNA")
+
+# include this to the igreph object
+V(day4_igraphObj)$GeneType <-totalNodesID_day4$gene_type
+# Edglist
+E(day4_igraphObj)
+
+## look data as adjecency matrix I DONT GET IT
+day4_igraphObj[c(1:50),c(1:50)]
+
+## check for self loops
+sum(which_loop(day4_igraphObj)) #0
+## if you have self loops
+networkX <- simplify(networkX, remove.loops = TRUE,
+                     remove.multiple = FALSE)
+any(which_loop(networkX))
+
+## diameter
+diameter(day4_igraphObj) ## 0.197
+
+## check if its connected
+is_connected(day4_igraphObj) ## TRUE
+######################################### Measure centrality ##########################################
+# 1. degree centralitty
+day4_igraphObjt_deg<-degree(day4_igraphObj,mode=c("All"))
+V(day4_igraphObj)$degree<-day4_igraphObjt_deg
+V(day4_igraphObj)$degree
+which.max(day4_igraphObjt_deg) # KDM3A
+hist(V(day4_igraphObj)$degree) # see the distibution 
+#2. Eigenvector centrality
+day4_igraphObj_eig <- evcent(day4_igraphObj)$vector
+V(day4_igraphObj)$Eigen<-day4_igraphObj_eig
+V(day4_igraphObj)$Eigen
+which.max(day4_igraphObj_eig) #KDM3A 
+
+#3. Betweenness centrality
+# Make negative weight positive in order to calculate betweenes
+day4_igraphObjPOSITIVE <-day4_igraphObj
+E(day4_igraphObjPOSITIVE)$weight <-abs(E(day4_igraphObjPOSITIVE)$weight)
+
+day4_igraphObj_bw<-betweenness(day4_igraphObjPOSITIVE, directed = F)
+V(day4_igraphObj)$betweenness<-day4_igraphObj_bw
+V(day4_igraphObj)$betweenness
+which.max(day4_igraphObj_bw) #AL603839.3 
+
+
+#### DF with all the information inside !!!! SUPERRRRRRRRR
+DF_day4<-as_long_data_frame(day4_igraphObj)
+DF_day4
+write.csv(DF_day4,'AllInfo_day4_30March.csv')
+
+## Check how many postive and how many negative links
+potivie_links_day4 <- subset(DF_day4,weight>=0)
+negative_links_day4 <- subset(DF_day4,weight<0)
+
+####################################### Network structure ##########################################
+# Network Density
+#1. Network Density
+edge_density(day4_igraphObj) # Global density  0.699467
+# for TFs and lncRNA
+TFsDensity_day4<-induced_subgraph(day4_igraphObj, V(day4_igraphObj)[GeneType=="TF"], impl=c("auto")) # Subgraphing into each class
+edge_density(TFsDensity_day4) # Class level density 0.7143498
+# FOR lncRNAs
+lncDensity_day4<-induced_subgraph(day4_igraphObj, V(day4_igraphObj)[GeneType=="lncRNA"], impl=c("auto")) # Subgraphing into each class
+edge_density(lncDensity_day4) # Class level density 0.5885886
+
+#2. Assortativity (Genes of the same type are close to each other?)
+values <- as.factor(V(day4_igraphObj)$GeneType) # this works 
+values <- as.numeric(factor(V(day4_igraphObj)$GeneType)) # and this as well
+# run
+assortativity_nominal(day4_igraphObj, types=values)
+# result 0.008 DOES NOT SAY SOMETHING THIS NUMBER ITSELF 
+
+#2.1. Calculate the observed assortativity
+observed.assortativity <- assortativity_nominal(day4_igraphObj, types=values)
+results <- vector('list', 1000)
+for(i in 1:1000){results[[i]] <- assortativity_nominal(day4_igraphObj, sample(values))}
+
+#2.2.  Plot the distribution of assortativity values and add a red vertical line at
+#the original observed value
+hist(unlist(results), xlim = c(0,0.4))
+abline(v = observed.assortativity,col = "red", lty = 3, lwd=2)        
+##explain graph 
+## So the gens tend to mingle with genes of different type !!!!!! See how to explain it 
+
+######################## Network visualization #############################################
+
+#1. Plotting a network raw without any centrality 
+
+# check self loops
+which_multiple(day4_igraphObj, eids = E(day4_igraphObj))
+#day4_igraphObj2 <- simplify(day4_igraphObj, remove.loops = T)
+# NO SELF LOOPS
+
+# Hub score
+hub_scores_day4 <- hub_score(day4_igraphObj,scale=TRUE) ## higher value is 1
+h4 <-hub_scores_day4$vector
+h4 <- as.data.frame(h4)
+h4 <-tibble::rownames_to_column(h4, var = "gene")
+colnames(h4)[2] <- "score"
+
+### extract hubs with score 0.9 , max value is 1 
+hubs_4day_08 <- h4[which((h4$score) >= 0.9),]
+
+################ ---------------------------PLOT------------------------------#################################
+# layout_in_circle
+
+#### filter network for ploting 
+# Remove edges below a certain value of wto
+day4_igraphObj_reduced <- delete_edges(day4_igraphObj, E(day4_igraphObj)[which(abs(E(day4_igraphObj)$weight)<0.61)])
+# Remove any vertices remaining that have no edges
+day4_igraphObj_reduced <- delete.vertices(day4_igraphObj_reduced, degree(day4_igraphObj_reduced)==0)
+# check number of edges and nodes
+gsize(day4_igraphObj_reduced) 
+gorder(day4_igraphObj_reduced) 
+
+## set seed and color library
+set.seed(1001) #same shape of network for the multiple tries 
+library(RColorBrewer) # This is the color library
+
+#### 1. highlight hubs with degree centrality > 600
+#e <- get.edgelist(day4_igraphObj,names=F)
+#l <- qgraph.layout.fruchtermanreingold(e,vcount=vcount(day4_igraphObj))
+#pal<-brewer.pal(length(unique(V(day4_igraphObj)$GeneType)), "Set2") # Vertex color assigned per each genetype number
+
+# SET edge colors
+E(day4_igraphObj)$color[E(day4_igraphObj)$weight <= 0] <- 'blue'
+E(day4_igraphObj)$color[E(day4_igraphObj)$weight > 0] <- 'red'
+
+# SET vertex colors
+# Change colour of graph vertices
+V(day4_igraphObj)$color[V(day4_igraphObj)$GeneType=="TF"]<- 'purple'
+V(day4_igraphObj)$color[V(day4_igraphObj)$GeneType=="lncRNA"]<- 'green'
+
+
+
+plot(simplify(day4_igraphObj), vertex.size= 0.01,edge.arrow.size=0.001,vertex.label.cex = 0.75,
+     vertex.label.color = "black"  ,vertex.frame.color = adjustcolor("white", alpha.f = 0),
+     vertex.color = adjustcolor("white", alpha.f = 0),edge.color=adjustcolor(1, alpha.f = 0.15),
+     display.isolates=FALSE,vertex.label=ifelse(day4_igraphObjt_deg > 630, V(day4_igraphObj)$name,NA))
+
+
+
+# open graph
+png("test1.png",bg = "transparent",res = 300, width=1200, height=1200)
+par(mar=c(0,0,0,0))
+
+plot.igraph(day4_igraphObj,
+     edge.width=0.1,
+     vertex.size=4,
+     #vertex.size = sqrt(day4_igraphObj_bw)/5,
+     #vertex.label.cex =0.2,
+     vertex.label=NA,
+     #vertex.label=ifelse(day4_igraphObjt_deg > 630, V(day4_igraphObj)$name,NA),
+     vertex.color=adjustcolor(V(day4_igraphObj)$color,alpha.f=0.15),
+       #pal[as.numeric(as.factor(vertex_attr(day4_igraphObj, "GeneType")))],
+     #area=10*(vcount(day4_igraphObj)^2),
+     #repulse.rad=(vcount(day4_igraphObj)^3.1),
+     edge.color=adjustcolor(E(day4_igraphObj)$color, alpha.f = 0.15),
+       #ifelse((E(day4_igraphObj_reduced)$weight)> 0, "blue","red"),
+     layout = layout.fruchterman.reingold
+     )
+dev.off()
+
+# orange tfs and blueish lncRNAs
+pal<-brewer.pal(length(unique(V(day4_igraphObj)$GeneType)), "Set3") # Vertex color assigned per each genetype number
+set.seed(1001)
+png("cluster3_betweenesCentality5.png",bg = "transparent",res = 300, width=1200, height=1200)
+par(mar=c(0,0,0,0))
+plot.igraph(day4_igraphObj,edge.color = 'gray',vertex.label.cex =0.2,
+            vertex.color=pal[as.numeric(as.factor(vertex_attr(day4_igraphObj, "GeneType")))],
+            #vertex.size = sqrt(day4_igraphObjt_deg),
+            vertex.size=5,
+            #edge.width=sqrt(E(day4_igraphObj)$weight/800),
+            #edge.width=0.5,
+            #edge.arrow.size = 0.5,
+            layout = layout.fruchterman.reingold)
+dev.off()
+###  another way of ploting 
+library("qgraph", lib.loc="~/R/win-library/4.0")
+e <- get.edgelist(day4_igraphObj,names=F)
+l <- qgraph.layout.fruchtermanreingold(e,vcount=vcount(day4_igraphObj))
+set.seed(1001)
+png("cluster3_BC_withoutLabels.png",bg = "transparent",res = 300, width=1200, height=1200)
+par(mar=c(0,0,0,0))
+plot(day4_igraphObj,layout=l,
+     edge.width=0.5,
+     #vertex.size=5,
+     vertex.size = sqrt(day4_igraphObj_bw)/5,
+     #vertex.label.cex =0.2,
+     vertex.label=NA,
+     vertex.label=ifelse(day4_igraphObj_bw > 2887, V(day4_igraphObj)$name,NA),
+     vertex.color=pal[as.numeric(as.factor(vertex_attr(day4_igraphObj, "GeneType")))],
+     area=10*(vcount(day4_igraphObj)^2),
+     repulse.rad=(vcount(day4_igraphObj)^3.1),
+     edge.color=ifelse((E(day4_igraphObj)$weight)> 0, "red","blue"))
+dev.off()
+
+#1. Plotting a network with the eigenvector centrality
+
+set.seed(1001)
+plot(day4_igraphObj,edge.color = 'black',vertex.label=NA, 
+     vertex.color=pal[as.numeric(as.factor(vertex_attr(day4_igraphObj, "GeneType")))],
+     vertex.size = sqrt(day4_igraphObj_eig)*10, 
+     edge.width=sqrt(E(day4_igraphObj)$weight),
+     layout = layout.fruchterman.reingold)
+
+#2. Plotting a network with the betweenness centrality
+setwd("D:/scRNA_1TRIM/wTO/cluster3")
+png("cluster3_betweenesCentality1.png",bg = "transparent", width=1200, height=1200)
+par(mar=c(0,0,0,0))
+
+set.seed(1001)
+plot.igraph(day4_igraphObj,edge.color = 'gray',vertex.label=NA, 
+            vertex.color=pal[as.numeric(as.factor(vertex_attr(day4_igraphObj, "GeneType")))],
+            vertex.size = sqrt(day4_igraphObj_bw)/10, 
+            #edge.width=sqrt(E(day4_igraphObj)$weight),
+            edge.width=0.1,
+            layout = layout.fruchterman.reingold) 
+#layout = layout.kamada.kawai) # kamada_kawai
+
+dev.off()
+
+#3. Plotting a scatter plot to see the correlation 
+
+#3.1. between degree and betweenness centrality
+
+plot(V(day4_igraphObj)$degree, V(day4_igraphObj)$betweenness)
+cor(V(day4_igraphObj)$degree, V(day4_igraphObj)$betweenness) ## 0.55  !!!
+#3.2. between degree and eigenvector centrality
+
+plot(V(day4_igraphObj)$degree, V(day4_igraphObj)$Eigen)
+cor(V(day4_igraphObj)$degree, V(day4_igraphObj)$Eigen) ## strong 0.9 !!!
+
+#==================================================================#
+#====================== Community Detection =======================#
+#==================================================================#
+
+#1. Louvain clustering
+lc <- cluster_louvain(day4_igraphObj) # Create a cluster based on the Louvain method
+communities(lc) # You can check which vertices belongs to which clusters.
+
+#2. Plotting the Betweenness Centrality network with the community detection
+
+set.seed(1001) # To duplicate the computer process and create exactly the same network repetitively you should set the seed.
+plot(lc, day4_igraphObj, edge.color = 'gray',vertex.label=NA,    # vertex.label.cex =0.5, 
+     vertex.color=pal[as.numeric(as.factor(vertex_attr(day4_igraphObj, "GeneType")))],
+     vertex.size = sqrt(day4_igraphObj_bw)/2, 
+     #edge.width=sqrt(E(day4_igraphObj)$weight/800),
+     edge.width=0.1,
+     layout = layout.fruchterman.reingold)
