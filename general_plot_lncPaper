@@ -1,0 +1,46 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+########################################### density plot biotype links ############################################################
+
+# Net  the filtered Network
+# Data object from Rebbecas code 
+## Assing biotype category to Nodes 
+Net <- Net %>% left_join(., Data %>% dplyr::select(Genes, Biotype), by=c('Node.1'='Genes')) 
+Net <- Net %>% left_join(., Data %>% dplyr::select(Genes, Biotype), by=c('Node.2' ='Genes')) 
+Net <- Not %>% mutate(CategoryBio=str_c(Biotype.x, ' - ', Biotype.y)) %>% 
+  mutate(CategoryBio=str_replace_all(CategoryBio,c("lncRNA - TF" ="TF - lncRNA")))
+
+# convert to factor , check levels
+Not$CategoryBio<-as.factor(Not$CategoryBio)
+levels(Not$CategoryBio)
+
+# plot 
+jpeg('Olig_wTO_byBiotypeLinks_2.jpeg', 800,800)
+ggplot(Net, aes(x=wTO, color=CategoryBio, fill=CategoryBio)) +
+  geom_histogram( position="identity", alpha=0.5,bins=100)+
+  geom_density(alpha=0.3)+  # if you want to include density line 
+  scale_color_manual(values=c("darkmagenta", "#E69F00", "#56B4E9"))+
+  scale_fill_manual(values=c("darkmagenta", "#E69F00", "#56B4E9"))+
+  labs(title="wTO-Biotype links",x="wTO", y = "Density")+
+  theme_classic()
+dev.off()
