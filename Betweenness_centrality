@@ -1,0 +1,29 @@
+## convert netowrk to igraph object 
+network_igraphObj <-graph_from_data_frame(network_dataframe,directed=F) # network_dataframe is 3-column dataframe wto, p.val, p.adj 
+## Assing edge attribute to each edge
+E(network_igraphObj)$weight<-E(network_igraphObj)$wTO  
+
+## Calculate Betweenness centrality
+# use abs values of wto/ won't work with negative values 
+network_igraphObj_abs <-network_igraphObj                              # create another igraph obj 
+E(network_igraphObj_abs)$weight <-abs(E(network_igraphObj_abs)$weight) # replace with abs(wto) values
+
+network_igraphObj_bw<-betweenness(network_igraphObj_abs, directed = F) # calculate betweenness centality by using the network_igraphObj_abs  
+V(day2_igraphObj)$betweenness<-day2_igraphObj_bw                       # assign betweenness centality in the original ighraph object 
+
+## Find GATEKEEPERS 
+# use  network_igraphObj_bw !!!
+#### Prepare if needed 
+network_igraphObj_bw <- as.data.frame(network_igraphObj_bw)                 # convert to dataframe
+network_igraphObj_bw<- setDT(network_igraphObj_bw, keep.rownames = TRUE)[]  # set rownmaes to column
+colnames(network_igraphObj_bw)[1]<-"geneName"                                   # rename
+colnames(network_igraphObj_bw)[2]<-"score"                                  # rename   
+
+# Filter for top 1%
+Top_betw_network <- network_igraphObj_bw[network_igraphObj_bw$score >= quantile(network_igraphObj_bw$score, 0.99),]
+Top_betw_network<-Top_betw_network[order(Top_betw_network$score , decreasing = TRUE ),]
+
+# Assign biotype
+Top_betw_network <-merge(Top_betw_network,GRF, by.x="geneName", by.y="gene")
+
+
