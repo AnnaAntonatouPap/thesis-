@@ -1,0 +1,7 @@
+run featureCounts in the folder containing bam files, if run from allegro, add /nfs at the beginning of the fileparts
+#Aliases to convert from UCSC annotation to Gencode
+
+featureCounts -p -t 'exon' -g 'gene_id' -a /group/ag_nowick/refs/Homo_sapiens/GRCh38/GenModels/GENCODE/gtf/gencode.v33.chr_patch_hapl_scaff.annotation.gtf.gz -A /group/ag_nowick/refs/Homo_sapiens/GRCh38/GenModels/GENCODE/gtf/GENCODE_chromosome_aliases.txt -o readcountsGENCODE_ENS.txt *.bam
+
+#format featurecounts output to change IDs and only retain the count table
+cat readcountsGENCODE_ENS.txt | grep -v '#' | sed 's/.bam//g'| cut -f 1,7- | awk 'BEGIN{FS=OFS="\t"}{gsub(/\.[0-9]*/, "", $1);print}' > readcountsGENCODE_ENS_formatted.txt
