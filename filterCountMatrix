@@ -1,0 +1,14 @@
+data <- read.table("genecounts.txt", header=TRUE,row.names=1) # import
+data <-data[ ,6:ncol(data)] # discard unwanted columns 
+# Edit labels 
+colnames(data) <- gsub("\\.sorted.bam$", "", colnames(data))
+colnames(data) <- gsub("...mapping.", "", colnames(data))
+
+######----------- Filter count matrix prior to wtO.fast------------------------ ########
+
+# Filter expression, x zeros ( keep genes that are expressed in ~70% of the samples)
+data$CountZero <- apply(data,1, function(x) {
+  sum(x==0)
+})
+data <- data[which(data$CountZero <=11),] # 11 for this dataste 
+data <- data[, -ncol(data)]
